@@ -1,17 +1,22 @@
-﻿import datetime
+﻿import ctypes
+import datetime
 import os
 import time
 import winsound  # Used in raise_alertN functions, any other action may be written there.
 
 
-ALERT1_TIMEOUT_SECONDS = (15 + 5) * 60      # 15 minutes + 5 extra minutes
-ALERT2_TIMEOUT_SECONDS = (30 + 10) * 60     # 30 minutes + 10 extra minutes
-ALERT3_TIMEOUT_SECONDS = (60 + 10) * 60     # 60 minutes + 10 extra minutes
-IS_DBG = True
-SLEEP_SECONDS = 60  # How much time to sleep after each cycle
+# Parameters
+ALERT1_TIMEOUT_MINUTES = 15 + 5     # Main part + extra time
+ALERT2_TIMEOUT_MINUTES = 30 + 10    # Main part + extra time
+ALERT3_TIMEOUT_MINUTES = 60 + 10    # Main part + extra time
+IS_DBG = False
+SLEEP_SECONDS_AFTER_ITERATION = 60  # How much time to sleep before starting next check iteration
 SNOOZE_FILE_NAME = 'snooze.txt'
-SNOOZE_DATETIME_FORMAT = '%Y-%m-%dT%H%M%S%'
-TARGET_FILE_NAME = r'D:\Home\Andy\Excel\_2020\2020-01_TimeFormV23.xlsm'
+SNOOZE_DATETIME_FORMAT = '%Y-%m-%dT%H%M'  # OLD: '%Y-%m-%dT%H%M%S%'
+# TARGET_FILE_NAME = r'D:\Home\Andy\Excel\_2020\2020-01_TimeFormV23.xlsm'
+TARGET_FILE_NAME = r'D:\Home\Andy\Excel\_2021\2021-01_TimeFormV24.xlsm'
+
+assert ALERT1_TIMEOUT_MINUTES < ALERT2_TIMEOUT_MINUTES < ALERT3_TIMEOUT_MINUTES
 
 
 def raise_alert1():
@@ -21,30 +26,33 @@ def raise_alert1():
 
 
 def raise_alert2():
-    duration_ms = 100
+    duration_ms = 200
     freq_hz = 880
     winsound.Beep(freq_hz, duration_ms)
-    time.sleep(0.1)
-    winsound.Beep(freq_hz, duration_ms * 3)
+    # time.sleep(0.1)  # There is a natural pause between the beeps (?)
+    winsound.Beep(freq_hz, duration_ms * 4)
 
 
 def raise_alert3():
-    duration_ms = 100
+    duration_ms = 600
     freq_hz = 880
-    winsound.Beep(freq_hz, duration_ms * 3)
-    time.sleep(0.1)
-    winsound.Beep(freq_hz, duration_ms * 3)
-    time.sleep(0.1)
-    winsound.Beep(freq_hz, duration_ms * 3)
+    winsound.Beep(freq_hz, duration_ms)
+    # time.sleep(0.1)  # There is a natural pause between the beeps (?)
+    winsound.Beep(freq_hz, duration_ms)
+    # time.sleep(0.1)  # There is a natural pause between the beeps (?)
+    winsound.Beep(freq_hz, duration_ms)
+    # NEW 2021-07-02
+    # Lock WS
+    ctypes.windll.user32.LockWorkStation()        
 
 
 def get_snooze_dt():
     snooze_dt = None
-    print('check_if_snoozed: start') if IS_DBG else None
+    print('  check_if_snoozed: start') if IS_DBG else None
 
     # Try to open snooze file, if any
     if os.path.isfile(SNOOZE_FILE_NAME):
-        print('  snooze file found.') if IS_DBG else None
+        print('    snooze file found.') if IS_DBG else None
         with open(SNOOZE_FILE_NAME) as f:
             lines = f.readlines()
 
@@ -54,7 +62,7 @@ def get_snooze_dt():
             if i == 0:
                 try:
                     snooze_dt = datetime.datetime.strptime(s, SNOOZE_DATETIME_FORMAT)
-                    print(f'  parsed snooze dt: {snooze_dt}') if IS_DBG else None
+                    print(f'    parsed snooze dt: {snooze_dt}') if IS_DBG else None
                 except:
                     print(f"WARNING! Incorrect snooze file format, expected {SNOOZE_DATETIME_FORMAT}, actual " +
                           f"string '{s}' -> snoozing will be skipped")
@@ -63,7 +71,7 @@ def get_snooze_dt():
                 assert s == '', f"Unexpected non-empty second or later line: '{s}' in file {SNOOZE_FILE_NAME}"
 
     else:
-        print(f'  file {SNOOZE_FILE_NAME} not found -> snoozing will be skipped') if IS_DBG else None
+        print(f'    file {SNOOZE_FILE_NAME} not found -> snoozing will be skipped') if IS_DBG else None
 
     return snooze_dt
 
@@ -71,33 +79,36 @@ def get_snooze_dt():
 def check_target_file_activity():
     # Do the check
     assert os.path.isfile(TARGET_FILE_NAME), f'Cannot find target file {TARGET_FILE_NAME}'
-    last_modification_time = os.path.getmtime(TARGET_FILE_NAME)
-    diff_seconds = time.time() - last_modification_time
-    if diff_seconds > ALERT3_TIMEOUT_SECONDS:
-        print(f'..diff secs {diff_seconds:.1f} exceeds alert3 timeout seconds {ALERT3_TIMEOUT_SECONDS} -> raise alert3')
+    last_modification_time = os.path.getmtime(TARGET_FILE_NAME)  # Returns unix time in float seconds
+    diff_minutes = (time.time() - last_modification_time) / 60.0
+    if diff_minutes > ALERT3_TIMEOUT_MINUTES:
+        print(f'  ..diff mins {diff_minutes:.1f} exceeds alert3 timeout minutes {ALERT3_TIMEOUT_MINUTES} -> ' +
+              f'raise alert3 (final)')
         raise_alert3()
-    elif diff_seconds > ALERT2_TIMEOUT_SECONDS:
-        print(f'..diff_secs {diff_seconds:.1f} exceeds alert2 timeout seconds {ALERT2_TIMEOUT_SECONDS} -> raise alert2')
+    elif diff_minutes > ALERT2_TIMEOUT_MINUTES:
+        print(f'  ..diff mins {diff_minutes:.1f} exceeds alert2 timeout minutes {ALERT2_TIMEOUT_MINUTES} -> ' +
+              f'raise alert2. Next alert level timeout: {ALERT3_TIMEOUT_MINUTES}')
         raise_alert2()
-    elif diff_seconds > ALERT1_TIMEOUT_SECONDS:
-        print(f'..diff_secs {diff_seconds:.1f} exceeds alert1 timeout seconds {ALERT1_TIMEOUT_SECONDS} -> raise alert1')
+    elif diff_minutes > ALERT1_TIMEOUT_MINUTES:
+        print(f'  ..diff mins {diff_minutes:.1f} exceeds alert1 timeout minutes {ALERT1_TIMEOUT_MINUTES} -> ' +
+              f'raise alert1. Next alert level timeout: {ALERT2_TIMEOUT_MINUTES}')
         raise_alert1()
     else:
-        print(f'..diff_secs {diff_seconds:.1f} does not exceed alert1 timeout seconds {ALERT1_TIMEOUT_SECONDS} -> OK')
+        print(f'  ..diff mins {diff_minutes:.1f} does not exceed alert1 timeout minutes {ALERT1_TIMEOUT_MINUTES} -> OK')
 
 
 def main():
-    print('Launching checker')
+    print('Launching checker (eternal cycle)')
     while True:
-        print(f'Cycle start, dt: {datetime.datetime.now()}')
+        print(f'Check iteration start, dt: {datetime.datetime.now()}')
 
         snooze_dt = get_snooze_dt()
         if (snooze_dt is not None) and (snooze_dt > datetime.datetime.now()):
-            print(f'.. check snoozed until {snooze_dt}')
+            print(f'  .. check snoozed until {snooze_dt}')
         else:
             check_target_file_activity()
 
-        time.sleep(SLEEP_SECONDS)
+        time.sleep(SLEEP_SECONDS_AFTER_ITERATION)
 
 
 if __name__ == '__main__':
